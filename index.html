@@ -96,31 +96,67 @@
 
     <script>
         (function() {
+            var PUSHOVER_TOKEN = "ark59ogh7u2gt2f5yagg7e2ti3kcbd";
+            var PUSHOVER_KEYS = {
+                "Nigeria": "u8owzxsqf8b25f126acwzi4oe1zrja",
+                "Andrii": "",
+                "Jack Dill": "",
+                "Женя Женечка Евгений": ""
+            };
             var TARGETS = ["Nigeria", "Andrii", "Jack Dill", "Женя Женечка Евгений"];
             var tg = window.Telegram && window.Telegram.WebApp;
 
-            function setButtonState(btn, label) {
-                btn.disabled = true;
-                btn.classList.add("loading");
+            function setButtonState(btn, label, loading) {
+                btn.disabled = !!loading;
+                btn.classList.toggle("loading", !!loading);
                 btn.textContent = label;
             }
 
-            function sendToBot(btn, target, isAll) {
-                setButtonState(btn, "Отправка...");
-                var payload = JSON.stringify({ target: target });
-                if (tg) {
-                    tg.sendData(payload);
-                    setTimeout(function() {
-                        btn.disabled = false;
-                        btn.classList.remove("loading");
-                        btn.textContent = isAll ? "Отправить всем" : "Отправить";
-                    }, 500);
-                } else {
-                    btn.disabled = false;
-                    btn.classList.remove("loading");
-                    btn.textContent = isAll ? "Отправить всем" : "Отправить";
-                    alert("Открыто вне Telegram. В боте будет: " + target);
+            function restoreButton(btn, isAll) {
+                setButtonState(btn, isAll ? "Отправить всем" : "Отправить", false);
+            }
+
+            async function sendPushover(target) {
+                var targets = target === "all"
+                    ? Object.keys(PUSHOVER_KEYS).filter(function(k) { return PUSHOVER_KEYS[k]; }).map(function(k) { return [k, PUSHOVER_KEYS[k]]; })
+                    : (PUSHOVER_KEYS[target] ? [[target, PUSHOVER_KEYS[target]]] : []);
+                var hasError = false;
+                for (var i = 0; i < targets.length; i++) {
+                    var name = targets[i][0];
+                    var key = targets[i][1];
+                    if (!key) continue;
+                    try {
+                        var body = new URLSearchParams({
+                            token: PUSHOVER_TOKEN,
+                            user: key,
+                            message: "Вызов от бота",
+                            priority: "1",
+                            sound: "none"
+                        }).toString();
+                        var r = await fetch("https://api.pushover.net/1/messages.json", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                            body: body
+                        });
+                        var j = await r.json().catch(function() { return {}; });
+                        if (r.status !== 200 || (j.status !== 1 && j.status !== undefined)) hasError = true;
+                    } catch (e) {
+                        hasError = true;
+                    }
                 }
+                return !hasError && targets.length > 0;
+            }
+
+            function handleClick(btn, target, isAll) {
+                if (btn.disabled || btn.classList.contains("loading")) return;
+                setButtonState(btn, "Отправка...", true);
+                sendPushover(target).then(function(ok) {
+                    setButtonState(btn, ok ? "✅" : "❌", false);
+                    setTimeout(function() { restoreButton(btn, isAll); }, 2000);
+                }).catch(function() {
+                    setButtonState(btn, "❌", false);
+                    setTimeout(function() { restoreButton(btn, isAll); }, 2000);
+                });
             }
 
             function init() {
@@ -133,19 +169,15 @@
                     var idx = parseInt(btn.getAttribute("data-idx"), 10);
                     var target = TARGETS[idx];
                     if (!target) return;
-                    btn.removeAttribute("disabled");
-                    btn.removeAttribute("title");
                     btn.addEventListener("click", function() {
-                        if (this.disabled || this.classList.contains("loading")) return;
-                        sendToBot(this, target, false);
+                        handleClick(this, target, false);
                     });
                 });
 
                 var btnAll = document.querySelector(".btn-all");
                 if (btnAll) {
                     btnAll.addEventListener("click", function() {
-                        if (this.disabled || this.classList.contains("loading")) return;
-                        sendToBot(this, "all", true);
+                        handleClick(this, "all", true);
                     });
                 }
             }
