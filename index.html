@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Уведомления Pushover</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--tg-theme-bg-color, #18222d);
+            color: var(--tg-theme-text-color, #e4e4e4);
+            min-height: 100vh;
+            padding: 16px;
+            padding-bottom: 24px;
+        }
+        h1 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: var(--tg-theme-text-color, #e4e4e4);
+        }
+        .card {
+            background: var(--tg-theme-secondary-bg-color, #242f3d);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        .avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: var(--tg-theme-button-color, #2ea043);
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .card.all .avatar { background: var(--tg-theme-link-color, #62bcf9); }
+        .name {
+            flex: 1;
+            font-size: 16px;
+            font-weight: 500;
+        }
+        .btn {
+            background: var(--tg-theme-button-color, #2481cc);
+            color: var(--tg-theme-button-text-color, #fff);
+            border: none;
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            min-width: 100px;
+        }
+        .btn:active { opacity: 0.9; }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn.loading { opacity: 0.8; cursor: wait; }
+    </style>
+</head>
+<body>
+    <h1>Уведомления Pushover</h1>
+    <div class="card" data-id="0">
+        <div class="avatar">N</div>
+        <span class="name">Nigeria</span>
+        <button type="button" class="btn" data-idx="0">Отправить</button>
+    </div>
+    <div class="card" data-id="1">
+        <div class="avatar">A</div>
+        <span class="name">Andrii</span>
+        <button type="button" class="btn" data-idx="1" disabled title="Ключ не задан">Отправить</button>
+    </div>
+    <div class="card" data-id="2">
+        <div class="avatar">J</div>
+        <span class="name">Jack Dill</span>
+        <button type="button" class="btn" data-idx="2" disabled title="Ключ не задан">Отправить</button>
+    </div>
+    <div class="card" data-id="3">
+        <div class="avatar">Ж</div>
+        <span class="name">Женя Женечка Евгений</span>
+        <button type="button" class="btn" data-idx="3" disabled title="Ключ не задан">Отправить</button>
+    </div>
+    <div class="card all" data-id="all">
+        <div class="avatar">★</div>
+        <span class="name">Все</span>
+        <button type="button" class="btn btn-all">Отправить всем</button>
+    </div>
+
+    <script>
+        (function() {
+            var PUSHOVER_APP_TOKEN = "YOUR_PUSHOVER_APP_TOKEN";
+            var PUSHOVER_API = "https://api.pushover.net/1/messages.json";
+            var USERS = [
+                { name: "Nigeria", key: "u8owzxsqf8b25f126acwzi4oe1zrja" },
+                { name: "Andrii", key: "" },
+                { name: "Jack Dill", key: "" },
+                { name: "Женя Женечка Евгений", key: "" }
+            ];
+            var MESSAGE = "Сообщение от бота";
+
+            function sendPushover(userKey) {
+                var body = new URLSearchParams({
+                    token: PUSHOVER_APP_TOKEN,
+                    user: userKey,
+                    message: MESSAGE,
+                    priority: "1",
+                    sound: "none"
+                });
+                return fetch(PUSHOVER_API, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: body.toString()
+                });
+            }
+
+            function setButtonState(btn, state, label) {
+                btn.disabled = state === "loading";
+                btn.classList.toggle("loading", state === "loading");
+                btn.textContent = label;
+            }
+
+            function restoreButton(btn, isAll) {
+                setButtonState(btn, "idle", isAll ? "Отправить всем" : "Отправить");
+            }
+
+            function handleResult(btn, success, isAll) {
+                setButtonState(btn, "result", success ? "✅" : "❌");
+                setTimeout(function() { restoreButton(btn, isAll); }, 2000);
+            }
+
+            function getKeysToSend(index) {
+                if (index === "all") {
+                    return USERS.filter(function(u) { return u.key; }).map(function(u) { return u.key; });
+                }
+                var u = USERS[index];
+                return u && u.key ? [u.key] : [];
+            }
+
+            function doSend(btn, keys, isAll) {
+                if (!keys.length) {
+                    handleResult(btn, false, isAll);
+                    return;
+                }
+                setButtonState(btn, "loading", "Отправка...");
+                var pending = keys.length;
+                var hasError = false;
+                keys.forEach(function(key) {
+                    sendPushover(key)
+                        .then(function(r) { if (!r.ok) hasError = true; })
+                        .catch(function() { hasError = true; })
+                        .finally(function() {
+                            pending--;
+                            if (pending === 0) handleResult(btn, !hasError, isAll);
+                        });
+                });
+            }
+
+            function init() {
+                var tg = window.Telegram && window.Telegram.WebApp;
+                if (tg) {
+                    tg.ready();
+                    tg.expand();
+                }
+
+                document.querySelectorAll(".btn[data-idx]").forEach(function(btn) {
+                    var idx = parseInt(btn.getAttribute("data-idx"), 10);
+                    if (USERS[idx] && !USERS[idx].key) return;
+                    btn.removeAttribute("disabled");
+                    btn.removeAttribute("title");
+                    btn.addEventListener("click", function() {
+                        if (this.disabled || this.classList.contains("loading")) return;
+                        var keys = getKeysToSend(idx);
+                        doSend(this, keys, false);
+                    });
+                });
+
+                var btnAll = document.querySelector(".btn-all");
+                if (btnAll) {
+                    btnAll.addEventListener("click", function() {
+                        if (this.disabled || this.classList.contains("loading")) return;
+                        var keys = getKeysToSend("all");
+                        doSend(this, keys, true);
+                    });
+                }
+            }
+
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", init);
+            } else {
+                init();
+            }
+        })();
+    </script>
+</body>
+</html>
