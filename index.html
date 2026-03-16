@@ -76,17 +76,17 @@
     <div class="card" data-id="1">
         <div class="avatar">A</div>
         <span class="name">Andrii</span>
-        <button type="button" class="btn" data-idx="1" disabled title="Ключ не задан">Отправить</button>
+        <button type="button" class="btn" data-idx="1">Отправить</button>
     </div>
     <div class="card" data-id="2">
         <div class="avatar">J</div>
         <span class="name">Jack Dill</span>
-        <button type="button" class="btn" data-idx="2" disabled title="Ключ не задан">Отправить</button>
+        <button type="button" class="btn" data-idx="2">Отправить</button>
     </div>
     <div class="card" data-id="3">
         <div class="avatar">Ж</div>
         <span class="name">Женя Женечка Евгений</span>
-        <button type="button" class="btn" data-idx="3" disabled title="Ключ не задан">Отправить</button>
+        <button type="button" class="btn" data-idx="3">Отправить</button>
     </div>
     <div class="card all" data-id="all">
         <div class="avatar">★</div>
@@ -96,75 +96,34 @@
 
     <script>
         (function() {
-            var PUSHOVER_APP_TOKEN = "YOUR_PUSHOVER_APP_TOKEN";
-            var PUSHOVER_API = "https://api.pushover.net/1/messages.json";
-            var USERS = [
-                { name: "Nigeria", key: "u8owzxsqf8b25f126acwzi4oe1zrja" },
-                { name: "Andrii", key: "" },
-                { name: "Jack Dill", key: "" },
-                { name: "Женя Женечка Евгений", key: "" }
-            ];
-            var MESSAGE = "Сообщение от бота";
+            var TARGETS = ["Nigeria", "Andrii", "Jack Dill", "Женя Женечка Евгений"];
+            var tg = window.Telegram && window.Telegram.WebApp;
 
-            function sendPushover(userKey) {
-                var body = new URLSearchParams({
-                    token: PUSHOVER_APP_TOKEN,
-                    user: userKey,
-                    message: MESSAGE,
-                    priority: "1",
-                    sound: "none"
-                });
-                return fetch(PUSHOVER_API, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                    body: body.toString()
-                });
-            }
-
-            function setButtonState(btn, state, label) {
-                btn.disabled = state === "loading";
-                btn.classList.toggle("loading", state === "loading");
+            function setButtonState(btn, label) {
+                btn.disabled = true;
+                btn.classList.add("loading");
                 btn.textContent = label;
             }
 
-            function restoreButton(btn, isAll) {
-                setButtonState(btn, "idle", isAll ? "Отправить всем" : "Отправить");
-            }
-
-            function handleResult(btn, success, isAll) {
-                setButtonState(btn, "result", success ? "✅" : "❌");
-                setTimeout(function() { restoreButton(btn, isAll); }, 2000);
-            }
-
-            function getKeysToSend(index) {
-                if (index === "all") {
-                    return USERS.filter(function(u) { return u.key; }).map(function(u) { return u.key; });
+            function sendToBot(btn, target, isAll) {
+                setButtonState(btn, "Отправка...");
+                var payload = JSON.stringify({ target: target });
+                if (tg) {
+                    tg.sendData(payload);
+                    setTimeout(function() {
+                        btn.disabled = false;
+                        btn.classList.remove("loading");
+                        btn.textContent = isAll ? "Отправить всем" : "Отправить";
+                    }, 500);
+                } else {
+                    btn.disabled = false;
+                    btn.classList.remove("loading");
+                    btn.textContent = isAll ? "Отправить всем" : "Отправить";
+                    alert("Открыто вне Telegram. В боте будет: " + target);
                 }
-                var u = USERS[index];
-                return u && u.key ? [u.key] : [];
-            }
-
-            function doSend(btn, keys, isAll) {
-                if (!keys.length) {
-                    handleResult(btn, false, isAll);
-                    return;
-                }
-                setButtonState(btn, "loading", "Отправка...");
-                var pending = keys.length;
-                var hasError = false;
-                keys.forEach(function(key) {
-                    sendPushover(key)
-                        .then(function(r) { if (!r.ok) hasError = true; })
-                        .catch(function() { hasError = true; })
-                        .finally(function() {
-                            pending--;
-                            if (pending === 0) handleResult(btn, !hasError, isAll);
-                        });
-                });
             }
 
             function init() {
-                var tg = window.Telegram && window.Telegram.WebApp;
                 if (tg) {
                     tg.ready();
                     tg.expand();
@@ -172,13 +131,13 @@
 
                 document.querySelectorAll(".btn[data-idx]").forEach(function(btn) {
                     var idx = parseInt(btn.getAttribute("data-idx"), 10);
-                    if (USERS[idx] && !USERS[idx].key) return;
+                    var target = TARGETS[idx];
+                    if (!target) return;
                     btn.removeAttribute("disabled");
                     btn.removeAttribute("title");
                     btn.addEventListener("click", function() {
                         if (this.disabled || this.classList.contains("loading")) return;
-                        var keys = getKeysToSend(idx);
-                        doSend(this, keys, false);
+                        sendToBot(this, target, false);
                     });
                 });
 
@@ -186,8 +145,7 @@
                 if (btnAll) {
                     btnAll.addEventListener("click", function() {
                         if (this.disabled || this.classList.contains("loading")) return;
-                        var keys = getKeysToSend("all");
-                        doSend(this, keys, true);
+                        sendToBot(this, "all", true);
                     });
                 }
             }
