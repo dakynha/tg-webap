@@ -120,11 +120,12 @@
                 var targets = target === "all"
                     ? Object.keys(PUSHOVER_KEYS).filter(function(k) { return PUSHOVER_KEYS[k]; }).map(function(k) { return [k, PUSHOVER_KEYS[k]]; })
                     : (PUSHOVER_KEYS[target] ? [[target, PUSHOVER_KEYS[target]]] : []);
-                var hasError = false;
+                var results = [];
                 for (var i = 0; i < targets.length; i++) {
                     var name = targets[i][0];
                     var key = targets[i][1];
                     if (!key) continue;
+                    var ok = false;
                     try {
                         var body = new URLSearchParams({
                             token: PUSHOVER_TOKEN,
@@ -139,19 +140,24 @@
                             body: body
                         });
                         var j = await r.json().catch(function() { return {}; });
-                        if (r.status !== 200 || (j.status !== 1 && j.status !== undefined)) hasError = true;
-                    } catch (e) {
-                        hasError = true;
-                    }
+                        ok = r.status === 200 && (j.status === 1 || j.status === undefined);
+                    } catch (e) {}
+                    results.push({ name: name, ok: ok });
                 }
-                return !hasError && targets.length > 0;
+                return results;
             }
 
             function handleClick(btn, target, isAll) {
                 if (btn.disabled || btn.classList.contains("loading")) return;
                 setButtonState(btn, "Отправка...", true);
-                sendPushover(target).then(function(ok) {
-                    setButtonState(btn, ok ? "✅" : "❌", false);
+                sendPushover(target).then(function(results) {
+                    var okCount = results.filter(function(r) { return r.ok; }).length;
+                    var allOk = okCount === results.length && results.length > 0;
+                    setButtonState(btn, allOk ? "✅" : (okCount ? "✅ " + okCount + "/" + results.length : "❌"), false);
+                    if (results.length > 1 && !allOk) {
+                        var failed = results.filter(function(r) { return !r.ok; }).map(function(r) { return r.name; });
+                        if (failed.length) setTimeout(function() { alert("Не доставлено: " + failed.join(", ") + ".\nПроверьте User Key в настройках Pushover у этих людей."); }, 300);
+                    }
                     setTimeout(function() { restoreButton(btn, isAll); }, 2000);
                 }).catch(function() {
                     setButtonState(btn, "❌", false);
