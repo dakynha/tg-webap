@@ -3,6 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none';
+                   script-src 'self' https://telegram.org;
+                   style-src 'unsafe-inline';
+                   connect-src https://api.pushover.net;">
     <title>Уведомления Pushover</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
@@ -64,47 +69,77 @@
         .btn:active { opacity: 0.9; }
         .btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .btn.loading { opacity: 0.8; cursor: wait; }
+        .error-banner {
+            background: #e74c3c;
+            color: #fff;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
     <h1>Уведомления Pushover</h1>
-    <div class="card" data-id="0">
-        <div class="avatar">N</div>
-        <span class="name">Nigeria</span>
-        <button type="button" class="btn" data-idx="0">Отправить</button>
-    </div>
-    <div class="card" data-id="1">
-        <div class="avatar">A</div>
-        <span class="name">Andrii</span>
-        <button type="button" class="btn" data-idx="1">Отправить</button>
-    </div>
-    <div class="card" data-id="2">
-        <div class="avatar">J</div>
-        <span class="name">Jack Dill</span>
-        <button type="button" class="btn" data-idx="2">Отправить</button>
-    </div>
-    <div class="card" data-id="3">
-        <div class="avatar">Ж</div>
-        <span class="name">Женя Женечка Евгений</span>
-        <button type="button" class="btn" data-idx="3">Отправить</button>
-    </div>
-    <div class="card all" data-id="all">
-        <div class="avatar">★</div>
-        <span class="name">Все</span>
-        <button type="button" class="btn btn-all">Отправить всем</button>
-    </div>
+    <div id="app"></div>
 
+    <!-- Load secrets from config.js (must not be committed — see config.example.js) -->
+    <script src="config.js"></script>
     <script>
         (function() {
-            var PUSHOVER_TOKEN = "ark59ogh7u2gt2f5yagg7e2ti3kcbd";
-            var PUSHOVER_KEYS = {
-                "Nigeria": "u8owzxsqf8b25f126acwzi4oe1zrja",
-                "Andrii": "u2usr3ue4a2ad9k6f43i9zvdbgiq7u",
-                "Jack Dill": "unz159wd7ej39y4yytbyyzyaje5ccr",
-                "Женя Женечка Евгений": "u4x4c23yzvuhjo8g8gnnitdpvbc3cn"
-            };
-            var TARGETS = ["Nigeria", "Andrii", "Jack Dill", "Женя Женечка Евгений"];
             var tg = window.Telegram && window.Telegram.WebApp;
+
+            /* ── Guard: Telegram WebApp context required ── */
+            if (!tg || !tg.initData) {
+                document.getElementById("app").innerHTML =
+                    '<div class="error-banner">Это приложение доступно только через Telegram.</div>';
+                return;
+            }
+
+            /* ── Guard: config.js must be present ── */
+            if (typeof PUSHOVER_CONFIG === "undefined" ||
+                !PUSHOVER_CONFIG.token ||
+                !PUSHOVER_CONFIG.keys ||
+                !PUSHOVER_CONFIG.targets) {
+                document.getElementById("app").innerHTML =
+                    '<div class="error-banner">Конфигурация не найдена. Скопируйте config.example.js в config.js и заполните данные.</div>';
+                console.error("Missing or incomplete PUSHOVER_CONFIG. See config.example.js.");
+                return;
+            }
+
+            var PUSHOVER_TOKEN = PUSHOVER_CONFIG.token;
+            var PUSHOVER_KEYS  = PUSHOVER_CONFIG.keys;
+            var TARGETS        = PUSHOVER_CONFIG.targets;
+
+            /* ── Build UI from config (no hardcoded names) ── */
+            var appEl = document.getElementById("app");
+            TARGETS.forEach(function(name, idx) {
+                var letter = name.charAt(0).toUpperCase();
+                var card = document.createElement("div");
+                card.className = "card";
+                card.setAttribute("data-id", String(idx));
+                card.innerHTML =
+                    '<div class="avatar">' + escapeHtml(letter) + '</div>' +
+                    '<span class="name">' + escapeHtml(name) + '</span>' +
+                    '<button type="button" class="btn" data-idx="' + idx + '">Отправить</button>';
+                appEl.appendChild(card);
+            });
+
+            var allCard = document.createElement("div");
+            allCard.className = "card all";
+            allCard.setAttribute("data-id", "all");
+            allCard.innerHTML =
+                '<div class="avatar">&#9733;</div>' +
+                '<span class="name">Все</span>' +
+                '<button type="button" class="btn btn-all">Отправить всем</button>';
+            appEl.appendChild(allCard);
+
+            /* ── Helpers ── */
+            function escapeHtml(str) {
+                var div = document.createElement("div");
+                div.appendChild(document.createTextNode(str));
+                return div.innerHTML;
+            }
 
             function setButtonState(btn, label, loading) {
                 btn.disabled = !!loading;
@@ -123,7 +158,7 @@
                 var results = [];
                 for (var i = 0; i < targets.length; i++) {
                     var name = targets[i][0];
-                    var key = targets[i][1];
+                    var key  = targets[i][1];
                     if (!key) continue;
                     var ok = false;
                     try {
@@ -141,7 +176,9 @@
                         });
                         var j = await r.json().catch(function() { return {}; });
                         ok = r.status === 200 && (j.status === 1 || j.status === undefined);
-                    } catch (e) {}
+                    } catch (e) {
+                        console.error("Pushover request failed for " + name + ":", e);
+                    }
                     results.push({ name: name, ok: ok });
                 }
                 return results;
@@ -153,45 +190,37 @@
                 sendPushover(target).then(function(results) {
                     var okCount = results.filter(function(r) { return r.ok; }).length;
                     var allOk = okCount === results.length && results.length > 0;
-                    setButtonState(btn, allOk ? "✅" : (okCount ? "✅ " + okCount + "/" + results.length : "❌"), false);
+                    setButtonState(btn, allOk ? "\u2705" : (okCount ? "\u2705 " + okCount + "/" + results.length : "\u274C"), false);
                     if (results.length > 1 && !allOk) {
                         var failed = results.filter(function(r) { return !r.ok; }).map(function(r) { return r.name; });
                         if (failed.length) setTimeout(function() { alert("Не доставлено: " + failed.join(", ") + ".\nПроверьте User Key в настройках Pushover у этих людей."); }, 300);
                     }
                     setTimeout(function() { restoreButton(btn, isAll); }, 2000);
-                }).catch(function() {
-                    setButtonState(btn, "❌", false);
+                }).catch(function(err) {
+                    console.error("handleClick error:", err);
+                    setButtonState(btn, "\u274C", false);
                     setTimeout(function() { restoreButton(btn, isAll); }, 2000);
                 });
             }
 
-            function init() {
-                if (tg) {
-                    tg.ready();
-                    tg.expand();
-                }
+            /* ── Init ── */
+            tg.ready();
+            tg.expand();
 
-                document.querySelectorAll(".btn[data-idx]").forEach(function(btn) {
-                    var idx = parseInt(btn.getAttribute("data-idx"), 10);
-                    var target = TARGETS[idx];
-                    if (!target) return;
-                    btn.addEventListener("click", function() {
-                        handleClick(this, target, false);
-                    });
+            document.querySelectorAll(".btn[data-idx]").forEach(function(btn) {
+                var idx = parseInt(btn.getAttribute("data-idx"), 10);
+                var target = TARGETS[idx];
+                if (!target) return;
+                btn.addEventListener("click", function() {
+                    handleClick(this, target, false);
                 });
+            });
 
-                var btnAll = document.querySelector(".btn-all");
-                if (btnAll) {
-                    btnAll.addEventListener("click", function() {
-                        handleClick(this, "all", true);
-                    });
-                }
-            }
-
-            if (document.readyState === "loading") {
-                document.addEventListener("DOMContentLoaded", init);
-            } else {
-                init();
+            var btnAll = document.querySelector(".btn-all");
+            if (btnAll) {
+                btnAll.addEventListener("click", function() {
+                    handleClick(this, "all", true);
+                });
             }
         })();
     </script>
